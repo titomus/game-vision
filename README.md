@@ -72,3 +72,17 @@ Il n'y a **pas de lecture des pixels par le CPU**. Une copie GPU et une deuxièm
 L'écran complet peut contenir des notifications privées : attention à ce qui apparaît dans la prévisualisation. Tout est traité **localement**, sans envoi réseau ni télémétrie. Pas de code injecté dans Fortnite ou dans un autre jeu.
 
 Licence MIT : voir [LICENSE](LICENSE).
+
+
+## Neural Lab : benchmark IA RTX 3050 (experimental)
+
+Le laboratoire [Neural Lab](docs/NEURAL-LAB.md) permet d'entraîner un petit réseau neuronal de débruitage puis de mesurer la durée GPU de l'inférence à 540p/720p/1080p, en 100/75/50 % de résolution interne. Il produit des comparaisons PNG et des rapports JSON/CSV.
+
+```powershell
+# Après installation de PyTorch CUDA, numpy et pillow :
+python -m neural.experiment train --steps 250 --device cuda
+python -m neural.experiment bench --device cuda --precision fp16
+python -m neural.experiment preview --device cuda --noise 0.07
+```
+
+Cette expérience **ne s'injecte pas dans un jeu** et n'utilise pas les poids NVIDIA. Le modèle entraîne uniquement le débruitage sur des images synthétiques ou des captures autorisées : ne pas confondre ce résultat avec un rendu photoréaliste de type DLSS. **Les FPS du benchmark ne sont pas les FPS d'un jeu.**

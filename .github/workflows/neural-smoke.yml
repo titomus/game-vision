@@ -1,0 +1,36 @@
+name: Neural CPU smoke tests
+on:
+  pull_request:
+    paths:
+      - "neural/**"
+      - ".github/workflows/neural-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "neural/**"
+      - ".github/workflows/neural-smoke.yml"
+  workflow_dispatch:
+jobs:
+  neural-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PyTorch CPU and image tools
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pillow numpy
+      - name: Verify that the CLI loads
+        run: python -m neural.experiment --help
+      - name: Train a model from procedural data
+        run: python -m neural.experiment train --steps 8 --patch-size 32 --dataset-count 6 --batch-size 2 --device cpu --weights models/tiny_denoiser.pt
+      - name: Benchmark on CPU without pretending this is a GPU test
+        run: python -m neural.experiment bench --device cpu --precision fp32 --resolutions 96x64 --scales 1.0 --iterations 3 --warmup 1
+      - name: Render synthetic before and after
+        run: python -m neural.experiment preview --device cpu --precision fp32 --demo-size 128
+      - name: Check created artifacts
+        run: |
+          python -c "from pathlib import Path; import json; p=Path('results/neural_bench.json'); d=json.loads(p.read_text()); assert d['device']=='cpu'; assert d['results'][0]['gpu_kernel_ms_median'] is None; assert Path('results/preview/compare.png').is_file(); print('neural smoke OK')"

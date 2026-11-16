@@ -1,0 +1,9 @@
+/build/
+/out/
+/.vs/
+*.user
+*.pdb
+*.obj
+*.ilk
+*.exe
+*.zip

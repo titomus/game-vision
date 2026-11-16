@@ -8,6 +8,10 @@
 #include <wrl/client.h>
 #include <algorithm>
 #include <chrono>
+#include <memory>
+#include <fstream>
+#include <iomanip>
+#include "gpu_timer.h"
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
@@ -148,8 +152,15 @@ public:
         bd.Usage=D3D11_USAGE_DEFAULT;
         bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
         Check(device->CreateBuffer(&bd,nullptr,&uniforms),"controls");
+        gpuTimer=std::make_unique<GpuTimer>(device.Get());
         Resize();
         ResetCapture();
+    }
+    void OpenCsv(const std::wstring& path) {
+        csv.open(path, std::ios::out | std::ios::trunc);
+        if (!csv) throw std::runtime_error("Cannot open benchmark CSV file.");
+        csv << "elapsed_s,capture_fps,gpu_shader_ms,capture_wait_ms,cpu_submit_ms,gpu_queries_completed,gpu_queries_dropped,preset,power,split\n";
+        sessionStart=Clock::now();
     }
     void Resize() {
         if (!swap) return;
@@ -225,7 +236,9 @@ public:
             context->PSSetConstantBuffers(0,1,uniforms.GetAddressOf());
             context->PSSetShaderResources(0,1,input.GetAddressOf());
             context->PSSetSamplers(0,1,sampler.GetAddressOf());
+            bool measuring=gpuTimer->Begin(context.Get());
             context->Draw(3,0);
+            if(measuring) gpuTimer->End(context.Get());
             ID3D11ShaderResourceView* empty[]={nullptr};
             context->PSSetShaderResources(0,1,empty);
             submitMs=std::chrono::duration<float,std::milli>(Clock::now()-submitted).count();
@@ -237,21 +250,35 @@ public:
         hr=swap->Present(vsync?1:0,0);
         if (hr==DXGI_STATUS_OCCLUDED) { Sleep(20); return; }
         Check(hr,"Present");
+        gpuTimer->Poll(context.Get());
         ++frames;
         auto now=Clock::now();
         double seconds=std::chrono::duration<double>(now-lastTitle).count();
         if (seconds>=1.0) {
             wchar_t title[360]{};
+            float fps=static_cast<float>(frames/seconds);
             std::swprintf(title,sizeof(title)/sizeof(title[0]),
-                L"GameVision | %.1f capture FPS | wait %.2f ms | CPU submit %.2f ms | preset %d | %.1fx | split %s | vsync %s",
-                frames/seconds,waitMs,submitMs,preset,power,
+                L"GameVision | %.1f capture FPS | GPU shader %.3f ms | wait %.2f ms | CPU submit %.2f ms | preset %d | %.1fx | split %s | vsync %s",
+                fps,gpuTimer->LatestMs(),waitMs,submitMs,preset,power,
                 split?L"on":L"off",vsync?L"on":L"off");
+            if (csv.is_open()) {
+                csv << std::fixed << std::setprecision(4)
+                    << std::chrono::duration<double>(now-sessionStart).count() << ","
+                    << fps << "," << gpuTimer->LatestMs() << ","
+                    << waitMs << "," << submitMs << ","
+                    << gpuTimer->Completed() << "," << gpuTimer->Dropped() << ","
+                    << preset << "," << power << "," << (split?1:0) << "\n";
+                csv.flush();
+            }
             SetWindowTextW(hwnd,title);
             frames=0;lastTitle=now;
         }
     }
 private:
     HWND hwnd=nullptr;
+    std::unique_ptr<GpuTimer> gpuTimer;
+    std::ofstream csv;
+    Clock::time_point sessionStart=Clock::now();
     ComPtr<IDXGIAdapter1> adapter;
     ComPtr<IDXGIOutput1> output1;
     ComPtr<IDXGIOutputDuplication> duplication;
@@ -287,13 +314,17 @@ static LRESULT CALLBACK Proc(HWND wnd,UINT msg,WPARAM key,LPARAM lp) {
 }
 static int Run(HINSTANCE instance,int argc,wchar_t** argv) {
     unsigned monitor=0;
+    std::wstring csvPath;
     for (int i=1;i<argc;++i) {
         if (!std::wcscmp(argv[i],L"--help")) {
-            MessageBoxW(nullptr,L"GameVision.exe [--monitor N]\n1-4 presets, Space compare, +/- strength, V vsync, Esc quit.",
+            MessageBoxW(nullptr,L"GameVision.exe [--monitor N] [--csv benchmark.csv]\n1-4 presets, Space compare, +/- strength, V vsync, Esc quit.",
                 L"GameVision help",MB_OK);
             return 0;
         }
-        if (!std::wcscmp(argv[i],L"--monitor") && i+1<argc) {
+        if (!std::wcscmp(argv[i],L"--csv") && i+1<argc) {
+            csvPath=argv[++i];
+            if (csvPath.empty()) throw std::runtime_error("Empty --csv output path.");
+        } else if (!std::wcscmp(argv[i],L"--monitor") && i+1<argc) {
             wchar_t* end=nullptr;
             auto n=std::wcstoul(argv[++i],&end,10);
             if (end==argv[i] || *end || n>31) throw std::runtime_error("Invalid --monitor (0..31)");
@@ -314,6 +345,7 @@ static int Run(HINSTANCE instance,int argc,wchar_t** argv) {
     SetWindowDisplayAffinity(wnd,0x00000011);
     GameVision game;
     g=&game;game.Initialize(wnd,monitor);
+    if (!csvPath.empty()) game.OpenCsv(csvPath);
     RECT prev{};GetClientRect(wnd,&prev);
     MSG msg{};
     bool done=false;

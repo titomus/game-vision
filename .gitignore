@@ -7,3 +7,10 @@
 *.ilk
 *.exe
 *.zip
+
+# Local neural experiments
+/.venv/
+/models/
+/results/
+__pycache__/
+*.pyc

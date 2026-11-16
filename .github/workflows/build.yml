@@ -1,0 +1,21 @@
+name: Build Windows portable
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure CMake
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Compile
+        run: cmake --build build --config Release
+      - name: Upload portable executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: GameVision-Windows-x64
+          path: build/GameVision.exe
